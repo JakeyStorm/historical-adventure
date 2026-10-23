@@ -110,8 +110,40 @@ test('an exhausted public budget returns a visitor message without exposing bill
   const base=`http://127.0.0.1:${server.address().port}`;
   assert.equal((await(await fetch(base+'/api/generation/config')).json()).enabled,false);
   const response=await fetch(base+'/api/generation/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input())});
-  assert.equal(response.status,503);assert.doesNotMatch(await response.text(),/Polza|баланс|лимит|₽/);
+  assert.equal(response.status,503);const rejected=await response.json();assert.equal(rejected.accepted,false);assert.doesNotMatch(JSON.stringify(rejected),/Polza|баланс|лимит|₽/);
   assert.deepEqual(calls,{script:0,video:0,voice:0,export:0});
+});
+
+test('a thirty-second request with four story beats constrains the model to two bounded scenes',async t=>{
+  const f=await fixture(t,{budget:1000});
+  f.api.request=async(path,body)=>{
+    if(path==='v1/audio/speech'){f.calls.voice++;assert.equal(body.input,plan.scenes[0].narration+' '+plan.scenes[0].narration);return{audio:Buffer.alloc(500,1).toString('base64'),usage:{cost_rub:0.1}};}
+    f.calls.script++;const schema=body.response_format.json_schema.schema.properties.scenes;
+    assert.equal(schema.minItems,2);assert.equal(schema.maxItems,2);assert.equal(schema.items.properties.narration.maxLength,164);
+    assert.ok(body.messages.some(message=>message.role==='system'&&message.content.includes('Объедини эпизоды')));
+    return{choices:[{message:{content:JSON.stringify({...plan,scenes:[plan.scenes[0],{...plan.scenes[0],title:'Финал'}]})}}],usage:{cost_rub:0.1}};
+  };
+  f.api.submit=async()=>({id:'bounded-scene-'+(++f.calls.video)});
+  const accepted=await f.service.create({...input(),duration:30,prompt:'Четыре эпизода: пекарня, землетрясение, пепел, уход из Помпей.'},'owner');
+  const job=await finished(f.service,accepted.id);assert.equal(job.status,'completed',job.error);assert.equal(job.totalClips,2);assert.equal(f.calls.script,1);assert.equal(f.calls.video,2);
+});
+
+test('a malformed received script is durable, editable and never orders video or a second script',async t=>{
+  const f=await fixture(t,{publicAccess:true,budget:1000});
+  f.api.request=async()=>{f.calls.script++;return{choices:[{message:{content:JSON.stringify({...plan,scenes:Array(4).fill(plan.scenes[0])})}}],usage:{cost_rub:0.07}};};
+  const accepted=await f.service.create({...input(),duration:30},'owner');const job=await finished(f.service,accepted.id);
+  assert.equal(job.status,'failed');assert.equal(job.canEdit,true);assert.deepEqual(f.calls,{script:1,video:0,voice:0,export:0});
+  const stored=JSON.parse(await readFile(join(f.directory,'jobs',accepted.id+'.json'),'utf8'));
+  assert.equal(stored.scriptPhase,'rejected');assert.equal(stored.scriptCost,0.07);assert.ok(stored.scriptDraft.content);assert.equal(stored.failureCode,'SCRIPT_INVALID');
+  f.service.close();const restored=new GenerationService(f.options);await restored.ready;t.after(()=>restored.close());
+  assert.equal(restored.get(accepted.id,'owner').canEdit,true);assert.equal(f.calls.script,1);
+});
+
+test('a restart after saving a script response reuses it without another paid script request',async t=>{
+  const f=await fixture(t);f.service.close();const request=input(),accepted=await f.service.create(request,'owner');
+  const job=f.service.jobs.get(accepted.id);job.scriptDraft={content:JSON.stringify(plan),cost:0.1};job.scriptCost=0.1;job.scriptPhase='received';job.status='planning';await f.service.persist(job);
+  const restored=new GenerationService(f.options);await restored.ready;t.after(()=>restored.close());
+  assert.equal((await finished(restored,accepted.id)).status,'completed');assert.equal(f.calls.script,0);assert.equal(f.calls.video,1);assert.equal(f.calls.voice,1);
 });
 
 test('unlimited monetary settings allow long public jobs while still checking the real provider balance',async t=>{
