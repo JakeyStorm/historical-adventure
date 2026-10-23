@@ -239,7 +239,7 @@ export class GenerationService {
     return { id: job.id, status: job.status, prompt: job.prompt, duration: job.duration, count: job.count,
       sound: job.sound, estimatedCost: job.estimatedCost, actualCost: job.actualCost ?? null, error: job.error || null,
       completedClips: job.clips.filter(clip => clip.phase === 'completed').length, totalClips: job.clips.length,
-      automatic:job.automatic===true,narration:job.narration===true,voice:job.voice||'onyx',plan:job.plan?{title:job.plan.title,narration:job.plan.narration,sourceNote:job.plan.sourceNote}:null,
+      automatic:job.automatic===true,narration:job.narration===true,publish:job.publish===true,voice:job.voice||'onyx',canEdit:job.failureCode==='SCRIPT_INVALID',plan:job.plan?{title:job.plan.title,narration:job.plan.narration,sourceNote:job.plan.sourceNote}:null,
       timeline:job.timeline||[],libraryIds:job.libraryIds||[],
       videos: job.status === 'completed' ? job.outputs.map((name, i) => ({ url: `/generated/${job.id}/${name}`, title:job.plan?.title||`Видеосцена ${i + 1}`,storyId:job.libraryIds?.[i]||null })) : [] };
   }
@@ -271,7 +271,7 @@ export class GenerationService {
         if(!this.publicAccess||!context.ownerHash||!context.clientHash)throw new RequestError(403,'Создание видео временно недоступно.');
         if(!estimate.automatic||scenePrompts!==undefined||estimate.estimatedCost>this.publicMaxCost)
           throw new RequestError(400,'Выберите меньшую длительность или один ролик.');
-        const recent=[...this.jobs.values()].filter(job=>job.clientHash===context.clientHash&&job.createdAt>Date.now()-3600000);
+        const recent=[...this.jobs.values()].filter(job=>!job.quotaRefunded&&job.clientHash===context.clientHash&&job.createdAt>Date.now()-3600000);
         if(recent.length>=this.publicJobsPerHour)throw new RequestError(429,'Вы уже создали несколько роликов. Попробуйте через час.');
       }
       if ([...this.jobs.values()].some(job => !terminal.has(job.status))) throw new RequestError(409, 'Предыдущее видео ещё создаётся. Дождитесь результата.');
@@ -325,7 +325,9 @@ export class GenerationService {
         if (terminal.has(job.status) || this.closed) continue;
         try { if(job.automatic)await this.processAutomatic(job);else await this.process(job); }
         catch (error) {
-          job.status = error.definiteRejection ? 'failed' : 'needs_review';
+          const invalidScript=error instanceof StoryError&&error.code==='SCRIPT_INVALID';
+          job.status = error.definiteRejection||invalidScript ? 'failed' : 'needs_review';
+          if(invalidScript){job.failureCode='SCRIPT_INVALID';job.scriptPhase='rejected';job.scriptCost=error.cost??job.scriptCost;job.actualCost=job.scriptCost;}
           job.error = error instanceof RequestError || error instanceof StoryError ? error.message
             : 'Не удалось завершить обработку. Проверьте историю Polza: повторный платный запрос автоматически не отправляется.';
           await this.persist(job);
@@ -340,8 +342,11 @@ export class GenerationService {
     if(!job.plan) {
       await this.stage(job,'planning','Ищем справочные материалы и пишем сценарий.');
       const background=await this.sources(job.prompt);
-      job.scriptPhase='submitting';await this.persist(job);
-      const result=await this.writeStory(this.api,job,background);
+      if(!job.scriptDraft){job.scriptPhase='submitting';await this.persist(job);}
+      const result=await this.writeStory(this.api,job,background,async draft=>{
+        // Полученный ответ сохраняется до проверки: перезапуск не заказывает сценарий повторно.
+        job.scriptDraft=draft;job.scriptCost=draft.cost;job.scriptPhase='received';job.scriptModel=SCRIPT_MODEL;await this.persist(job);
+      });
       job.plan=result.plan;job.scriptCost=result.cost;job.scriptPhase='completed';job.scriptModel=SCRIPT_MODEL;
       job.scenePrompts=Array.from({length:job.count},()=>job.plan.scenes.map(scene=>scene.visual)).flat();
       await this.stage(job,'planning','Сценарий написан сайтом автоматически.');

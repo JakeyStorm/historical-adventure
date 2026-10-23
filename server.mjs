@@ -29,7 +29,7 @@ export function createAppServer(generation, options={}) {
   const attempts = new Map();
   const trustProxy=options.trustProxy??process.env.TRUST_PROXY==='true';
   const hash=value=>createHash('sha256').update(value).digest('hex');
-  const safeView=job=>{const {estimatedCost,actualCost,...view}=job;return {...view,error:job.error?'Не удалось завершить создание видео. Попробуйте позже.':null};};
+  const safeView=job=>{const {estimatedCost,actualCost,...view}=job;return {...view,error:job.error?(job.canEdit?'Сценарий не удалось подготовить. Видеосцены ещё не создавались. Можно изменить описание и попробовать снова.':'Не удалось завершить создание видео. Попробуйте позже.'):null};};
   function session(req,res) {
     // Посетитель получает сессию автоматически; служебный пароль в браузер не передаётся.
     let token=String(req.headers.cookie||'').match(/(?:^|;\s*)ha_session=([a-f0-9]{64})(?:;|$)/)?.[1];
@@ -85,7 +85,7 @@ export function createAppServer(generation, options={}) {
             const job=await generation.create({...input,automatic:true,scenePrompts:undefined},generation.password,{publicAccess:true,ownerHash,clientHash});
             return json(res,202,safeView(job));
           } catch(error) {
-            if(error.status===402||error.status===503)throw new RequestError(503,'Создание новых видео временно недоступно. Готовые истории можно посмотреть в библиотеке.');
+            if(error.status===402||error.status===503)return json(res,503,{error:error.status===402?'Для выбранных настроек создание пока недоступно. Попробуйте меньшую длительность.':'Создание новых видео временно недоступно. Попробуйте позже.',accepted:false});
             throw error;
           }
         }
