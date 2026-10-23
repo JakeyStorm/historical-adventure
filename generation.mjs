@@ -9,7 +9,7 @@ import { pipeline } from 'node:stream/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { atomicJson, findBackground, writeStory, makeSpeech, exportStory, saveLibraryStory, StoryError, SCRIPT_MODEL, VOICE_MODEL, SCRIPT_RESERVE_RUB, voiceReserve } from './story.mjs';
+import { atomicJson, findBackground, writeStory, makeSpeech, exportStory, saveLibraryStory, StoryError, SCRIPT_MODEL, VOICE_MODEL, VOICES, SCRIPT_RESERVE_RUB, voiceReserve } from './story.mjs';
 
 const exec = promisify(execFile);
 const terminal = new Set(['completed', 'failed', 'needs_review']);
@@ -159,6 +159,9 @@ export class GenerationService {
     this.budget = moneyLimit(options.budget ?? process.env.POLZA_BUDGET_RUB, 50, true);
     this.rate = number(options.rate ?? process.env.POLZA_MAX_PRICE_PER_SECOND, 10);
     this.audioRate = number(options.audioRate ?? process.env.POLZA_MAX_AUDIO_PRICE_PER_SECOND, 15);
+    this.videoConcurrency=number(options.videoConcurrency??process.env.POLZA_VIDEO_CONCURRENCY,4);
+    if(!Number.isInteger(this.videoConcurrency)||this.videoConcurrency>4)throw new Error('Video concurrency must be an integer from 1 to 4');
+    this.pause=options.pause||sleep;
     this.directory = resolve(options.directory || process.env.DATA_DIR || 'data');
     this.ffmpeg = options.ffmpeg || process.env.FFMPEG_PATH || 'ffmpeg';
     this.verifyMedia = options.verifyMedia || (()=>exec(this.ffmpeg,['-version'],{timeout:5000,windowsHide:true}));
@@ -168,7 +171,7 @@ export class GenerationService {
     this.writeStory = options.writeStory || writeStory;
     this.makeSpeech = options.makeSpeech || makeSpeech;
     this.exportStory = options.exportStory || exportStory;
-    this.jobs = new Map(); this.published = new Map(); this.lock = Promise.resolve(); this.working = false; this.closed = false;
+    this.jobs = new Map(); this.published = new Map(); this.saveQueue=new Map();this.lock = Promise.resolve(); this.working = false; this.closed = false;
     this.ready = this.initialize();
   }
   async initialize() {
@@ -195,7 +198,7 @@ export class GenerationService {
     return { enabled: Boolean(this.key), requiresPassword: Boolean(this.password), model: 'Kling 3.0 Standard',
       rate: this.rate, audioRate: this.audioRate, budgetRemaining: Number.isFinite(this.budget)?round(Math.max(0, this.budget - reserved)):null,
       automaticPipeline:true, scriptReserveRub:SCRIPT_RESERVE_RUB, voiceReserves:Object.fromEntries([3,5,15,30,60].map(duration=>[duration,voiceReserve(duration)])),
-      durations: [3, 5, 15, 30, 60] };
+      durations: [3, 5, 15, 30, 60],voices:VOICES,videoConcurrency:this.videoConcurrency };
   }
   authorize(password) {
     if (!this.key) throw new RequestError(503, 'Генерация ещё не подключена. Владелец сайта должен добавить ключ Polza.');
@@ -205,7 +208,7 @@ export class GenerationService {
   publicConfig() {
     const config=this.config();
     return {enabled:config.enabled&&(config.budgetRemaining===null||config.budgetRemaining>=3*this.rate+SCRIPT_RESERVE_RUB),
-      automaticPipeline:true,publicAccess:this.publicAccess,
+      automaticPipeline:true,publicAccess:this.publicAccess,voices:VOICES,
       durations:config.durations.filter(duration=>this.estimate({duration,count:1,sound:true,automatic:true}).estimatedCost<=this.publicMaxCost),
       maxDurationByCount:Object.fromEntries([1,2].map(count=>[count,Math.max(0,...config.durations.filter(duration=>this.estimate({duration,count,sound:true,automatic:true}).estimatedCost<=this.publicMaxCost))]))};
   }
@@ -214,22 +217,29 @@ export class GenerationService {
     if (![3, 5, 15, 30, 60].includes(duration) || ![1, 2].includes(count)) throw new RequestError(400, 'Выберите допустимую длительность и количество роликов.');
     const rate = sound ? this.audioRate : this.rate;
     const automatic=input.automatic===true,narration=automatic&&input.narration!==false,publish=automatic&&input.publish!==false;
+    if(automatic&&input.voice!==undefined&&!VOICES.some(item=>item.id===input.voice))throw new RequestError(400,'Выберите голос из списка.');
     const extras=automatic?SCRIPT_RESERVE_RUB+(narration?voiceReserve(duration):0):0;
     return { duration, count, sound, rate, estimatedCost: round(duration * count * rate+extras),
-      ...(automatic?{automatic,narration,publish,extrasReserveRub:extras}:{}),
+      ...(automatic?{automatic,narration,publish,extrasReserveRub:extras,...(input.voice!==undefined?{voice:input.voice}:{})}:{}),
       clipDurations: duration > 15 ? Array(duration / 15).fill(15) : [duration] };
   }
   async check(password) { this.authorize(password); return { ...await this.api.check(), ...this.config() }; }
   async persist(job) {
-    const path = join(this.directory, 'jobs', `${job.id}.json`);
-    await atomicJson(path,job);
-    this.published.set(job.id, this.view(job));
+    // Параллельные сцены сохраняют общий журнал строго по очереди: старый снимок не затрёт новый ID.
+    const previous=this.saveQueue.get(job.id)||Promise.resolve();
+    const saving=previous.then(async()=>{
+      const snapshot=structuredClone(job);
+      await atomicJson(join(this.directory,'jobs',`${job.id}.json`),snapshot);
+      this.published.set(job.id,this.view(snapshot));
+    });
+    this.saveQueue.set(job.id,saving);
+    try {await saving;} finally {if(this.saveQueue.get(job.id)===saving)this.saveQueue.delete(job.id);}
   }
   view(job) {
     return { id: job.id, status: job.status, prompt: job.prompt, duration: job.duration, count: job.count,
       sound: job.sound, estimatedCost: job.estimatedCost, actualCost: job.actualCost ?? null, error: job.error || null,
       completedClips: job.clips.filter(clip => clip.phase === 'completed').length, totalClips: job.clips.length,
-      automatic:job.automatic===true,narration:job.narration===true,plan:job.plan?{title:job.plan.title,narration:job.plan.narration,sourceNote:job.plan.sourceNote}:null,
+      automatic:job.automatic===true,narration:job.narration===true,voice:job.voice||'onyx',plan:job.plan?{title:job.plan.title,narration:job.plan.narration,sourceNote:job.plan.sourceNote}:null,
       timeline:job.timeline||[],libraryIds:job.libraryIds||[],
       videos: job.status === 'completed' ? job.outputs.map((name, i) => ({ url: `/generated/${job.id}/${name}`, title:job.plan?.title||`Видеосцена ${i + 1}`,storyId:job.libraryIds?.[i]||null })) : [] };
   }
@@ -345,7 +355,7 @@ export class GenerationService {
       if(job.voicePhase!=='completed') {
         await this.stage(job,'narrating','Записываем русский дикторский голос.');
         job.voicePhase='submitting';await this.persist(job);
-        const result=await this.makeSpeech(this.api,job.plan.narration);
+        const result=await this.makeSpeech(this.api,job.plan.narration,job.voice||'onyx');
         await writeFile(voice,result.bytes,{mode:0o600,flush:true});
         job.voiceCost=result.cost;job.voicePhase='completed';job.voiceModel=VOICE_MODEL;
         await this.stage(job,'narrating','Русская дикторская дорожка сохранена.');
@@ -369,32 +379,70 @@ export class GenerationService {
     await this.stage(job,'completed',job.publish?`Видео${job.narration?' с озвучкой':''} готово и автоматически сохранено в библиотеке.`:'Видео готово.');
   }
   async generateClips(job,directory) {
-    await this.stage(job,'generating','Генерируем видеосцены Kling.');
-    for(let i=0;i<job.clips.length;i++) {
-      const clip=job.clips[i],file=join(directory,`clip-${i}.mp4`);
-      if(clip.phase==='completed'&&await stat(file).then(s=>s.size>0,()=>false))continue;
-      if(!clip.remoteId) {
-        const description=job.scenePrompts[i];
-        const prompt=`Historical artistic reconstruction. ${description} Accurate period materials and natural light. Ambient scene sounds only, no speech, no narration, no singing, no text overlays, no logos.`;
-        clip.phase='submitting';clip.submittedAt=Date.now();await this.persist(job);
-        const remote=await this.api.submit({prompt,duration:String(clip.duration),mode:'std',sound:job.sound,aspect_ratio:'16:9',images:job.image?[{type:'base64',data:job.image.data}]:[]},job.rate);
-        if(!remote.id)throw new RequestError(502,'Polza не вернула номер задания. Повторный платный запрос не отправляется.');
-        clip.remoteId=remote.id;clip.phase='processing';await this.persist(job);
+    await this.stage(job,'generating',`Создаём видеосцены: до ${this.videoConcurrency} одновременно.`);
+    let cursor=0,limit=this.videoConcurrency,rejections=0;
+    while(cursor<job.clips.length&&!this.closed) {
+      const batch=[];let submissionError,throttled=false;
+      // Отправляем задания с сохранением каждого ID, затем ожидаем их одновременно.
+      for(let slot=0;slot<limit&&cursor<job.clips.length&&!this.closed;slot++) {
+        const index=cursor,clip=job.clips[index],file=join(directory,`clip-${index}.mp4`);
+        if(clip.phase==='completed'&&await stat(file).then(s=>s.size>0,()=>false)){cursor++;continue;}
+        try {
+          await this.submitClip(job,index);
+          batch.push(index);cursor++;rejections=0;
+        } catch(error) {
+          if(error.status===429&&error.definiteRejection) {
+            throttled=true;limit=Math.max(1,batch.length);
+          } else submissionError=error;
+          break;
+        }
       }
+      // Даже после ошибки отправки забираем уже оплаченные сцены. Новые в этом случае не заказываем.
+      const results=await Promise.allSettled(batch.map(index=>this.collectClip(job,directory,index)));
+      const failed=results.find(result=>result.status==='rejected');
+      if(submissionError)throw submissionError;
+      if(failed)throw failed.reason;
+      if(throttled&&!batch.length) {
+        if(++rejections>3)throw new RequestError(429,'Сервис временно не принимает новые сцены. Уже готовые фрагменты сохранены.');
+        await this.pause(5000*rejections);
+      }
+    }
+  }
+  async submitClip(job,index) {
+    const clip=job.clips[index];
+    if(clip.remoteId)return;
+    const prompt=`Historical artistic reconstruction. ${job.scenePrompts[index]} Accurate period materials and natural light. Ambient scene sounds only, no speech, no narration, no singing, no text overlays, no logos.`;
+    clip.phase='submitting';clip.submittedAt=Date.now();await this.persist(job);
+    let remote;
+    try {
+      remote=await this.api.submit({prompt,duration:String(clip.duration),mode:'std',sound:job.sound,aspect_ratio:'16:9',images:job.image?[{type:'base64',data:job.image.data}]:[]},job.rate);
+    } catch(error) {
+      // Повтор разрешён только при явном отказе 429, когда сервис не принял платное задание.
+      if(error.definiteRejection){clip.phase=error.status===429?'pending':'rejected';delete clip.submittedAt;await this.persist(job);}
+      throw error;
+    }
+    if(!remote.id)throw new RequestError(502,'Polza не вернула номер задания. Повторный платный запрос не отправляется.');
+    clip.remoteId=remote.id;clip.phase='processing';await this.persist(job);
+  }
+  async collectClip(job,directory,index) {
+      const clip=job.clips[index],file=join(directory,`clip-${index}.mp4`);
       let remote;
       while(!this.closed) {
-        remote=await this.api.status(clip.remoteId);
+        try {remote=await this.api.status(clip.remoteId);}
+        catch(error) {
+          if([429,502,503,504].includes(error.status)&&Date.now()-clip.submittedAt<30*60*1000){await this.pause(10000);continue;}
+          throw error;
+        }
         if(remote.status==='completed')break;
         if(['failed','cancelled'].includes(remote.status))throw new RequestError(502,'Нейросеть не завершила сцену. Проверьте историю Polza.');
         if(Date.now()-clip.submittedAt>30*60*1000)throw new RequestError(504,'Задание сохранено, но генерация превысила время ожидания.');
-        await sleep(5000);
+        await this.pause(5000);
       }
       if(this.closed)return;
       const url=videoUrl(remote.data);if(!url)throw new RequestError(502,'Ссылка на готовую сцену не получена.');
       await this.download(url,file);
-      clip.phase='completed';const cost=Number(remote.usage?.cost_rub??remote.usage?.cost);clip.cost=Number.isFinite(cost)?cost:null;
+      clip.phase='completed';clip.completedAt=Date.now();const cost=Number(remote.usage?.cost_rub??remote.usage?.cost);clip.cost=Number.isFinite(cost)?cost:null;
       await this.persist(job);
-    }
   }
   async process(job) {
     const directory = join(this.directory, 'generated', job.id);

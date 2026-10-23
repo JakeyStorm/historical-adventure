@@ -9,6 +9,14 @@ const exec = promisify(execFile);
 export class StoryError extends Error {}
 export const SCRIPT_MODEL = 'openai/gpt-4o-mini';
 export const VOICE_MODEL = 'openai/tts-1-hd';
+export const VOICES = [
+  {id:'onyx',label:'Onyx — низкий, спокойный'},
+  {id:'nova',label:'Nova — лёгкий, яркий'},
+  {id:'shimmer',label:'Shimmer — мягкий'},
+  {id:'echo',label:'Echo — ровный, чёткий'},
+  {id:'fable',label:'Fable — выразительный рассказчик'},
+  {id:'alloy',label:'Alloy — нейтральный'}
+];
 export const SCRIPT_RESERVE_RUB = 3;
 export const MAX_TTS_RATE = 4000;
 export const narrationLimit = duration => Math.floor(duration * 11);
@@ -72,9 +80,10 @@ export async function writeStory(api, job, background) {
     cost:Number(result.usage?.cost_rub??result.usage?.cost)||null};
 }
 
-export async function makeSpeech(api, narration) {
+export async function makeSpeech(api, narration, voice='onyx') {
+  if(!VOICES.some(item=>item.id===voice))throw new StoryError('Выберите голос из списка.');
   const response=await api.request('v1/audio/speech',{
-    model:VOICE_MODEL,input:narration,voice:'onyx',response_format:'mp3',speed:1.02,
+    model:VOICE_MODEL,input:narration,voice,response_format:'mp3',speed:1.02,
     provider:{only:['openai'],allow_fallbacks:false,sort:'price',max_price:{tts_per_million_characters:MAX_TTS_RATE}}
   },{timeout:120000,audio:true});
   if(typeof response.audio!=='string'||response.audio.length>12*1024*1024||!/^[A-Za-z0-9+/]+={0,2}$/.test(response.audio))
