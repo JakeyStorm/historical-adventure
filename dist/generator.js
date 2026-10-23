@@ -5,6 +5,14 @@
     set(id) { try { if (id) sessionStorage.setItem('historical-active-generation', id); else sessionStorage.removeItem('historical-active-generation'); } catch { /* Storage is optional. */ } } };
   let mode = 'generate', config, reference, imageMime, busy = false, tracking = false, requestId, submitted, activeId = storage.get();
   const dialog = $('generation-dialog'), controls = ['generation-prompt','generation-duration','generation-count','generation-sound','generation-narration','generation-voice','generation-publish'];
+  const preview = $('generation-voice-audio'), previewButton = $('generation-voice-preview'), previewStatus = $('generation-voice-preview-status');
+  const previewVoices = new Set(['onyx','nova','shimmer','echo','fable','alloy']);
+  let previewAttempt = 0;
+  // Образцы записаны заранее тем же TTS. Прослушивание загружает только статический MP3.
+  function stopPreview() {
+    previewAttempt++; preview.pause(); preview.currentTime = 0;
+    previewButton.textContent = '▶ Послушать голос'; previewButton.setAttribute('aria-pressed','false'); previewStatus.textContent = '';
+  }
   function error(message) { $('generation-error').textContent = message; $('generation-error').hidden = !message; }
   async function api(path, options = {}) {
     const response = await fetch(path, { ...options, credentials:'same-origin',headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(40000) });
@@ -14,6 +22,7 @@
   }
   function update() {
     $('generation-voice').disabled=busy||Boolean(submitted)||!$('generation-narration').checked;
+    previewButton.disabled=busy||Boolean(submitted)||!$('generation-narration').checked;
     const max=config?.maxDurationByCount?.[$('generation-count').value]??60;
     for(const option of $('generation-duration').options)option.disabled=Number(option.value)>max;
     if(Number($('generation-duration').value)>max)$('generation-duration').value=String(max||3);
@@ -21,6 +30,7 @@
     $('generation-start').disabled = busy || (!activeId && !submitted && (!config?.enabled || $('generation-prompt').value.trim().length < 10));
   }
   async function open(options) {
+    stopPreview();
     error('');
     if (!dialog.open) { dialog.showModal(); document.body.classList.add('modal-open'); }
     try {
@@ -88,6 +98,7 @@
   }
   $('generation-start').addEventListener('click', async () => {
     if (busy) return;
+    stopPreview();
     busy = true; error(''); update();
     try {
       if (activeId) { await track(activeId); return; }
@@ -102,7 +113,27 @@
     } finally { busy = false; update(); }
   });
   controls.forEach(id => $(id).addEventListener('input', update));
-  dialog.addEventListener('close', () => dialog.querySelectorAll('video').forEach(video => video.pause()));
+  $('generation-voice').addEventListener('change', stopPreview);
+  $('generation-narration').addEventListener('change', stopPreview);
+  previewButton.addEventListener('click', async () => {
+    if (previewButton.disabled) return;
+    if (previewButton.getAttribute('aria-pressed') === 'true') { stopPreview(); return; }
+    stopPreview();
+    const voice = $('generation-voice').value;
+    if (!previewVoices.has(voice)) return;
+    const attempt = previewAttempt;
+    preview.src = `/assets/voices/${voice}.mp3`;
+    previewButton.textContent = '■ Остановить'; previewButton.setAttribute('aria-pressed','true'); previewStatus.textContent = 'Загружаем образец…';
+    try {
+      await preview.play();
+      if (attempt === previewAttempt) previewStatus.textContent = `Звучит ${voice[0].toUpperCase()+voice.slice(1)}`;
+    } catch {
+      if (attempt === previewAttempt) { stopPreview(); previewStatus.textContent = 'Не удалось включить образец. Попробуйте ещё раз.'; }
+    }
+  });
+  preview.addEventListener('ended', stopPreview);
+  preview.addEventListener('error', () => { if (previewButton.getAttribute('aria-pressed') === 'true') { stopPreview(); previewStatus.textContent = 'Не удалось загрузить образец. Попробуйте ещё раз.'; } });
+  dialog.addEventListener('close', () => { stopPreview(); dialog.querySelectorAll('video').forEach(video => video.pause()); });
   function setMode(value) { mode = value; $('mode-generate').setAttribute('aria-pressed', String(mode === 'generate')); $('mode-library').setAttribute('aria-pressed', String(mode === 'library')); }
   $('mode-generate').addEventListener('click', () => setMode('generate'));
   $('mode-library').addEventListener('click', () => setMode('library'));

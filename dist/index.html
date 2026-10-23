@@ -83,6 +83,12 @@
       <div class="generation-options"><label class="generation-field">Длительность<select id="generation-duration"><option value="3">3 секунды</option><option value="5" selected>5 секунд</option><option value="15">15 секунд</option><option value="30">30 секунд</option><option value="60">1 минута</option></select></label><label class="generation-field">Количество роликов<select id="generation-count"><option value="1">Один ролик</option><option value="2">Два ролика</option></select></label></div>
       <label class="generation-sound"><input id="generation-narration" type="checkbox" checked> Русский диктор — сайт сам напишет и озвучит рассказ</label>
       <label class="generation-field">Голос диктора<select id="generation-voice"><option value="onyx">Onyx — низкий, спокойный</option><option value="nova">Nova — лёгкий, яркий</option><option value="shimmer">Shimmer — мягкий</option><option value="echo">Echo — ровный, чёткий</option><option value="fable">Fable — выразительный рассказчик</option><option value="alloy">Alloy — нейтральный</option></select></label>
+      <div class="generation-voice-preview">
+        <button type="button" id="generation-voice-preview" class="text-link" aria-pressed="false" aria-describedby="generation-voice-sample">▶ Послушать голос</button>
+        <span id="generation-voice-sample">«История оживает. Начнём путешествие»</span>
+        <span id="generation-voice-preview-status" role="status" aria-live="polite"></span>
+        <audio id="generation-voice-audio" preload="none" hidden></audio>
+      </div>
       <label class="generation-sound"><input id="generation-sound" type="checkbox" checked> Добавить фоновые звуки сцены</label>
       <label class="generation-sound"><input id="generation-publish" type="checkbox" checked> Автоматически сохранить готовое видео в общей библиотеке сайта</label>
       <p class="generation-note">Сайт сам напишет сценарий, создаст видеоряд и добавит выбранную озвучку.</p>
