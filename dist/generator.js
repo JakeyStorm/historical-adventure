@@ -6,7 +6,7 @@
   let mode = 'generate', config, reference, imageMime, busy = false, tracking = false, requestId, submitted, activeId = storage.get();
   const dialog = $('generation-dialog'), controls = ['generation-prompt','generation-duration','generation-count','generation-sound','generation-narration','generation-voice','generation-publish'];
   const preview = $('generation-voice-audio'), previewButton = $('generation-voice-preview'), previewStatus = $('generation-voice-preview-status');
-  const previewVoices = new Set(['onyx','nova','shimmer','echo','fable','alloy']);
+  const previewVoices = new Set(['gemini-charon','gemini-kore','onyx','nova','shimmer','echo','fable','alloy']);
   let previewAttempt = 0;
   // Образцы записаны заранее тем же TTS. Прослушивание загружает только статический MP3.
   function stopPreview() {
@@ -69,7 +69,7 @@
         if(result.storyId){const library=document.createElement('a');library.className='text-link';library.href='?story='+encodeURIComponent(result.storyId);library.textContent='Открыть в библиотеке ↗';article.append(library);}
       });
       if(job.automatic)$('generation-status').textContent+=job.narration?' Русский диктор добавлен автоматически.':' Создано сайтом автоматически.';
-      if(job.narration&&job.automatic)$('generation-status').textContent+=` Голос: ${job.voice||'onyx'}.`;
+      if(job.narration&&job.automatic)$('generation-status').textContent+=` Голос: ${config?.voices?.find(voice=>voice.id===(job.voice||'onyx'))?.label||job.voice||'Onyx'}.`;
       if(job.libraryIds?.length){$('generation-status').textContent+=' Ролик сохранён в библиотеке.';window.dispatchEvent(new Event('historical-library-updated'));}
     }
     if (['completed','failed','needs_review'].includes(job.status)) { activeId = ''; storage.set(''); return false; }
@@ -122,11 +122,11 @@
     const voice = $('generation-voice').value;
     if (!previewVoices.has(voice)) return;
     const attempt = previewAttempt;
-    preview.src = `/assets/voices/${voice}.mp3`;
+    preview.src = `/assets/voices/${voice}.${voice.startsWith('gemini-')?'wav':'mp3'}`;
     previewButton.textContent = '■ Остановить'; previewButton.setAttribute('aria-pressed','true'); previewStatus.textContent = 'Загружаем образец…';
     try {
       await preview.play();
-      if (attempt === previewAttempt) previewStatus.textContent = `Звучит ${voice[0].toUpperCase()+voice.slice(1)}`;
+      if (attempt === previewAttempt) previewStatus.textContent = `Звучит ${$('generation-voice').selectedOptions[0]?.textContent||voice}`;
     } catch {
       if (attempt === previewAttempt) { stopPreview(); previewStatus.textContent = 'Не удалось включить образец. Попробуйте ещё раз.'; }
     }
