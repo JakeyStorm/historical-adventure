@@ -4,7 +4,7 @@
   const storage = { get() { try { return sessionStorage.getItem('historical-active-generation') || ''; } catch { return ''; } },
     set(id) { try { if (id) sessionStorage.setItem('historical-active-generation', id); else sessionStorage.removeItem('historical-active-generation'); } catch { /* Storage is optional. */ } } };
   let mode = 'generate', config, reference, imageMime, busy = false, tracking = false, requestId, submitted, activeId = storage.get();
-  const dialog = $('generation-dialog'), controls = ['generation-prompt','generation-duration','generation-count','generation-sound','generation-narration','generation-publish'];
+  const dialog = $('generation-dialog'), controls = ['generation-prompt','generation-duration','generation-count','generation-sound','generation-narration','generation-voice','generation-publish'];
   function error(message) { $('generation-error').textContent = message; $('generation-error').hidden = !message; }
   async function api(path, options = {}) {
     const response = await fetch(path, { ...options, credentials:'same-origin',headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(40000) });
@@ -13,6 +13,7 @@
     return data;
   }
   function update() {
+    $('generation-voice').disabled=busy||Boolean(submitted)||!$('generation-narration').checked;
     const max=config?.maxDurationByCount?.[$('generation-count').value]??60;
     for(const option of $('generation-duration').options)option.disabled=Number(option.value)>max;
     if(Number($('generation-duration').value)>max)$('generation-duration').value=String(max||3);
@@ -58,6 +59,7 @@
         if(result.storyId){const library=document.createElement('a');library.className='text-link';library.href='?story='+encodeURIComponent(result.storyId);library.textContent='Открыть в библиотеке ↗';article.append(library);}
       });
       if(job.automatic)$('generation-status').textContent+=job.narration?' Русский диктор добавлен автоматически.':' Создано сайтом автоматически.';
+      if(job.narration&&job.automatic)$('generation-status').textContent+=` Голос: ${job.voice||'onyx'}.`;
       if(job.libraryIds?.length){$('generation-status').textContent+=' Ролик сохранён в библиотеке.';window.dispatchEvent(new Event('historical-library-updated'));}
     }
     if (['completed','failed','needs_review'].includes(job.status)) { activeId = ''; storage.set(''); return false; }
@@ -90,7 +92,7 @@
     try {
       if (activeId) { await track(activeId); return; }
       if (!submitted) submitted = { requestId, prompt:$('generation-prompt').value.trim(), duration:Number($('generation-duration').value),
-        count:Number($('generation-count').value), sound:$('generation-sound').checked, automatic:true,narration:$('generation-narration').checked,publish:$('generation-publish').checked,image:reference ? await readImage(reference) : null };
+        count:Number($('generation-count').value), sound:$('generation-sound').checked, automatic:true,narration:$('generation-narration').checked,voice:$('generation-voice').value,publish:$('generation-publish').checked,image:reference ? await readImage(reference) : null };
       controls.forEach(id => { $(id).disabled = true; });
       const job = await api('/api/generation/jobs', { method:'POST', body:JSON.stringify(submitted) });
       activeId = job.id; storage.set(job.id); if (render(job)) await track(job.id);
