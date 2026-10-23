@@ -1,0 +1,19 @@
+{
+    default_sni {$SITE_ADDRESS}
+}
+
+{$SITE_ADDRESS} {
+    tls {
+        issuer acme {
+            dir https://acme-v02.api.letsencrypt.org/directory
+            profile shortlived
+        }
+    }
+    encode zstd gzip
+    reverse_proxy app:3000
+}
+
+historical-adventure.95-163-220-202.sslip.io {
+    encode zstd gzip
+    reverse_proxy app:3000
+}

@@ -1,0 +1,16 @@
+node_modules/
+.openai/state/
+build-media/
+*.tar.gz
+*.zip
+.env*
+!.env.example
+data/
+materials/
+.openai/
+*.tmp
+*.log
+*.bak
+__pycache__/
+.DS_Store
+Thumbs.db
