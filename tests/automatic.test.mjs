@@ -149,9 +149,24 @@ function fourSceneFixture(fixture,selected='fable') {
 
 test('voice choices are exposed and invalid voices are rejected before any paid operation',async t=>{
   const {service,calls}=await fixture(t);
-  assert.deepEqual(service.publicConfig().voices.map(voice=>voice.id),['onyx','nova','shimmer','echo','fable','alloy']);
+  assert.deepEqual(service.publicConfig().voices.map(voice=>voice.id),['gemini-charon','gemini-kore','onyx','nova','shimmer','echo','fable','alloy']);
   await assert.rejects(service.create({...input(),voice:'unknown'},'owner'),/голос/);
   assert.deepEqual(calls,{script:0,video:0,voice:0,export:0});
+});
+
+test('Gemini voice selection routes narration to the chosen model and preserves it after restart',async t=>{
+  const f=await fixture(t);const original=f.api.request;
+  f.api.request=async(path,body)=>{
+    if(path!=='v1/audio/speech')return original(path,body);
+    f.calls.voice++;assert.equal(body.model,'google/gemini-3.8-flash-tts');assert.equal(body.voice,'Kore');
+    assert.equal(body.input,plan.scenes[0].narration);assert.equal(body.provider.allow_fallbacks,false);assert.equal('max_price' in body.provider,false);
+    return{audio:Buffer.alloc(500,1).toString('base64'),contentType:'audio/wav',usage:{cost_rub:0.06}};
+  };
+  const request={...input(),voice:'gemini-kore'},accepted=await f.service.create(request,'owner');
+  const result=await finished(f.service,accepted.id);assert.equal(result.status,'completed',result.error);assert.equal(result.voice,'gemini-kore');
+  const journal=JSON.parse(await readFile(join(f.directory,'jobs',accepted.id+'.json'),'utf8'));assert.equal(journal.voiceModel,'google/gemini-3.8-flash-tts');
+  f.service.close();const restored=new GenerationService(f.options);await restored.ready;t.after(()=>restored.close());
+  assert.equal((await restored.create(request,'owner')).status,'completed');assert.equal(f.calls.voice,1);
 });
 
 test('four scenes run concurrently, retain their order and IDs, and use the selected voice once',async t=>{
