@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#09131c">
+  <meta name="description" content="A Historical adventure — интерактивное изучение истории. Исторические видеорассказы с русской озвучкой, источниками и вопросами для самопроверки.">
+  <title>A Historical adventure — история оживает</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="generator.css">
+  <script src="events-data.js" defer></script>
+  <script src="generator.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">К содержанию</a>
+  <header class="header">
+    <a class="brand" href="#" aria-label="A Historical adventure — главная">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="16"/><circle cx="24" cy="24" r="20"/><path d="M24 1v46M1 24h46M8 8l32 32M8 40L40 8"/><path class="needle" d="m24 7 5 17-5 17-5-17Z"/></svg>
+      <span>A Historical <em>adventure</em></span>
+    </a>
+    <nav aria-label="Главная навигация">
+      <a href="#library">Истории</a>
+      <a href="#how">Как это работает</a>
+      <a href="#about">О проекте</a>
+    </nav>
+    <button class="history-button" id="history-button" type="button" aria-label="Открыть историю просмотров" title="История просмотров"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.5 7M3 4v7h7M12 7v5l3 2"/></svg><span>Мои просмотры</span></button>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-background" aria-hidden="true"></div>
+      <div class="hero-content">
+        <p class="eyebrow"><span></span> Путешествие сквозь время <span></span></p>
+        <h1 id="hero-title">Какое событие<br><em>изучим сегодня?</em></h1>
+        <p class="hero-description">Большая история начинается с одного вопроса.<br>Создайте видеосцену или выберите готовый рассказ.</p>
+        <form id="topic-form" class="topic-form" novalidate>
+          <div class="generation-modes" role="group" aria-label="Способ работы с темой"><button type="button" id="mode-generate" aria-pressed="true">Создать новое видео</button><button type="button" id="mode-library" aria-pressed="false">Найти в библиотеке</button></div>
+          <div class="query-box">
+            <button type="button" class="attach-button" id="attach-button" title="Прикрепить изображение или текстовый файл" aria-label="Прикрепить изображение или текстовый файл"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9a7 7 0 0 1 10 10l-9 9"/></svg></button>
+            <label class="sr-only" for="topic-input">Название или описание исторического события</label>
+            <input id="topic-input" name="topic" placeholder="Название события или его описание" autocomplete="off" maxlength="2000" aria-describedby="input-help input-error">
+            <button class="submit-button" type="submit" aria-label="Создать исторический видеорассказ"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button>
+          </div>
+          <input type="file" id="file-input" accept="image/png,image/jpeg,image/webp,text/plain,.txt" hidden>
+          <div id="attachment" class="attachment" hidden><img id="attachment-preview" alt="Предпросмотр прикреплённого изображения" hidden><span id="attachment-name"></span><button type="button" id="remove-file" aria-label="Удалить прикреплённый файл">×</button></div>
+          <p id="input-error" class="input-error" role="alert" hidden></p>
+          <p class="input-help" id="input-help">Изображение или .txt до 10 МБ</p>
+        </form>
+        <div class="suggestions"><span>Например:</span><button data-topic="borodino">Бородинское сражение <span>↗</span></button><button data-topic="rome">Древний Рим <span>↗</span></button><button data-topic="gagarin">Полёт Гагарина <span>↗</span></button></div>
+      </div>
+      <a class="scroll-cue" href="#library"><span>В каждом времени есть своя история</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18m-6-6 6 6 6-6"/></svg></a>
+      <span class="hero-caption">Художественная иллюстрация</span>
+    </section>
+
+    <section class="library section-shell" id="library" aria-labelledby="library-title">
+      <div class="section-heading"><div><p class="eyebrow">Библиотека путешествий</p><h2 id="library-title">У каждой эпохи<br>есть <em>свой поворот.</em></h2></div><p>Выберите событие. Посмотрите рассказ.<br>Разберитесь, что изменилось после него.</p></div>
+      <div class="library-toolbar"><div class="filters" role="group" aria-label="Фильтр историй по эпохе"><button class="active" data-filter="all" aria-pressed="true">Все эпохи</button><button data-filter="rome" aria-pressed="false">Древний мир</button><button data-filter="printing-1564" aria-pressed="false">XVI век</button><button data-filter="borodino" aria-pressed="false">XIX век</button><button data-filter="gagarin" aria-pressed="false">XX век</button></div><span class="library-count" id="library-count">04 истории</span></div>
+      <div class="story-grid" id="story-grid"><p class="loading-label">Открываем библиотеку…</p></div>
+      <p class="library-note"><span>✧</span> Проверяйте факты по источникам. Иллюстрации помогают представить эпоху, а исторические свидетельства — понять её.</p>
+    </section>
+
+    <section class="how section-shell" id="how" aria-labelledby="how-title">
+      <div class="section-heading"><div><p class="eyebrow">От вопроса к пониманию</p><h2 id="how-title">История, которую<br>можно <em>исследовать.</em></h2></div><p>Не только посмотреть.<br>Проверить, переспросить и сделать вывод.</p></div>
+      <div class="steps"><article><span class="step-number">01</span><h3>Задайте тему</h3><p>Опишите историческую сцену или прикрепите изображение. Выберите длительность и настройки ролика.</p></article><article><span class="step-number">02</span><h3>Посмотрите видео</h3><p>Получите новую видеосцену или откройте готовый рассказ с русской озвучкой из библиотеки.</p></article><article><span class="step-number">03</span><h3>Проверьте себя</h3><p>В готовых рассказах откройте источники и текст озвучки. Ответьте на вопросы, чтобы связать факты в одну историю.</p></article></div>
+    </section>
+
+    <section class="what-if section-shell" aria-labelledby="what-if-title"><div class="what-if-ornament" aria-hidden="true">✧</div><div><p class="eyebrow">Интерактивный эксперимент</p><h2 id="what-if-title">А <em>что, если</em><br>выбрать другой путь?</h2><p>Одно решение — несколько возможных последствий.<br>Попробуйте учебную модель и сравните её с реальным прошлым.</p><button class="gold-link" type="button" id="what-if-button">Принять решение <span>↗</span></button></div><div class="branch-visual" aria-hidden="true"><div class="branch-origin">Точка выбора</div><div class="branch-line"></div><div class="branch-options"><span>Продолжить переговоры</span><span>Изменить план</span></div><p>Альтернативная модель, не исторический факт</p></div></section>
+
+    <section class="about section-shell" id="about" aria-labelledby="about-title"><div><p class="eyebrow">Шаг в будущее · 2026</p><h2 id="about-title">A Historical<br><em>adventure</em></h2></div><div class="about-copy"><p class="about-lead">Учебный проект на стыке истории<br>и цифровых технологий.</p><p>Создавайте художественные видеосцены по описанию или изображению. В библиотеке изучайте готовые видеорассказы с русской озвучкой, текстом и источниками.</p><p>Изучайте причины событий, решения участников и последствия. После просмотра проверьте себя, а в режиме «что если» исследуйте альтернативное продолжение.</p><a href="#library" class="text-link">Начать путешествие <span>↗</span></a></div></section>
+  </main>
+
+  <footer class="footer section-shell"><span>A Historical adventure <span class="footer-year">© 2026</span></span><span>Изучайте прошлое. Задавайте вопросы.</span><a href="#">Наверх ↑</a></footer>
+  <div class="toast" id="toast" role="status" hidden></div>
+  <dialog id="generation-dialog" class="small-dialog generation-dialog" aria-labelledby="generation-title">
+    <div class="dialog-top"><span class="eyebrow">История в движении</span><button class="close-button" data-close="generation-dialog" aria-label="Закрыть создание видео">×</button></div>
+    <h2 id="generation-title">Создать <em>видеосцену.</em></h2>
+    <p class="generation-intro">Опишите один момент из прошлого и выберите настройки ролика.</p>
+    <div id="generation-settings">
+      <label class="generation-field">Описание сцены<textarea id="generation-prompt" maxlength="2000" rows="5"></textarea></label>
+      <p id="generation-reference" class="generation-note" hidden></p>
+      <div class="generation-options"><label class="generation-field">Длительность<select id="generation-duration"><option value="3">3 секунды</option><option value="5" selected>5 секунд</option><option value="15">15 секунд</option><option value="30">30 секунд</option><option value="60">1 минута</option></select></label><label class="generation-field">Количество роликов<select id="generation-count"><option value="1">Один ролик</option><option value="2">Два ролика</option></select></label></div>
+      <label class="generation-sound"><input id="generation-narration" type="checkbox" checked> Русский диктор — сайт сам напишет и озвучит рассказ</label>
+      <label class="generation-sound"><input id="generation-sound" type="checkbox" checked> Добавить фоновые звуки сцены</label>
+      <label class="generation-sound"><input id="generation-publish" type="checkbox" checked> Автоматически сохранить готовое видео в общей библиотеке сайта</label>
+      <p class="generation-note">Сайт сам напишет сценарий, создаст видеоряд и добавит выбранную озвучку.</p>
+      <button id="generation-start" class="generation-start" type="button" disabled>Создать видео</button>
+    </div>
+    <p id="generation-error" class="input-error" role="alert" hidden></p>
+    <div id="generation-status" class="generation-status" role="status" aria-live="polite" hidden></div>
+    <ol id="generation-timeline" class="generation-note" hidden></ol>
+    <details id="generation-plan" class="generation-note" hidden><summary>Сценарий, который написал сайт</summary><h3 id="generation-plan-title"></h3><p id="generation-plan-text"></p></details>
+    <div id="generation-results" hidden></div>
+    <p class="generation-note">Художественная реконструкция. Исторические детали нужно проверять по источникам.</p>
+  </dialog>
+
+  <dialog id="story-dialog" class="story-dialog" aria-labelledby="story-title"><div class="dialog-shell"><div class="dialog-top"><span class="eyebrow">История в деталях</span><button class="close-button" data-close="story-dialog" aria-label="Закрыть видеорассказ">×</button></div><div class="story-meta" id="story-meta"></div><h2 id="story-title"></h2><p class="story-description" id="story-description"></p><div class="video-wrap"><video id="story-video" controls playsinline preload="metadata" aria-label="Исторический видеорассказ"></video><span class="video-label" id="video-label"></span></div><p id="video-error" class="input-error" role="alert" hidden>Не удалось загрузить видео. Попробуйте открыть или скачать ролик по ссылке ниже.</p><div class="video-actions"><span>Видеорассказ готов <span class="gold-dot">·</span> Русская озвучка</span><a id="download-video" class="text-link" download>Скачать MP4 ↓</a></div><div class="story-tabs" role="tablist" aria-label="Материалы к видеорассказу"><button id="tab-transcript" class="active" role="tab" aria-selected="true" aria-controls="panel-transcript" data-panel="transcript">Текст озвучки</button><button id="tab-sources" role="tab" aria-selected="false" aria-controls="panel-sources" data-panel="sources" tabindex="-1">Источники</button><button id="tab-quiz" role="tab" aria-selected="false" aria-controls="panel-quiz" data-panel="quiz" tabindex="-1">Проверьте себя</button></div><div id="panel-transcript" role="tabpanel" aria-labelledby="tab-transcript" class="story-panel"></div><div id="panel-sources" role="tabpanel" aria-labelledby="tab-sources" class="story-panel" hidden></div><div id="panel-quiz" role="tabpanel" aria-labelledby="tab-quiz" class="story-panel" hidden></div></div></dialog>
+  <dialog id="choice-dialog" class="small-dialog" aria-labelledby="choice-title"><div class="dialog-top"><span class="eyebrow">Уточним тему</span><button class="close-button" data-close="choice-dialog" aria-label="Закрыть выбор темы">×</button></div><h2 id="choice-title">Какое событие<br>вы имеете в виду?</h2><p id="choice-description"></p><div id="choice-list" class="choice-list"></div></dialog>
+  <dialog id="history-dialog" class="small-dialog" aria-labelledby="history-title"><div class="dialog-top"><span class="eyebrow">Ваши путешествия</span><button class="close-button" data-close="history-dialog" aria-label="Закрыть историю просмотров">×</button></div><h2 id="history-title">Мои просмотры</h2><div id="history-list" class="choice-list"></div><button id="clear-history" class="text-link" type="button">Очистить историю</button></dialog>
+  <dialog id="branch-dialog" class="small-dialog branch-dialog" aria-labelledby="branch-title"><div class="dialog-top"><span class="eyebrow">Альтернативный сценарий</span><button class="close-button" data-close="branch-dialog" aria-label="Закрыть учебную модель">×</button></div><h2 id="branch-title">Решение меняет<br><em>продолжение.</em></h2><p class="branch-disclaimer">Вымышленная учебная ситуация. Она не описывает конкретное историческое событие.</p><div id="branch-content"></div></dialog>
+  <dialog id="creation-dialog" class="small-dialog creation-dialog" aria-labelledby="creation-title"><div class="dialog-top"><span class="eyebrow">Создание видеорассказа</span><button class="close-button" data-close="creation-dialog" aria-label="Отменить создание видео">×</button></div><div class="creation-compass" aria-hidden="true">✧</div><h2 id="creation-title">История<br><em>обретает голос.</em></h2><p id="creation-topic"></p><ol class="creation-steps"><li class="creation-step"><span class="creation-step-mark">01</span><span>Определяем событие</span></li><li class="creation-step"><span class="creation-step-mark">02</span><span>Подбираем видеоряд</span></li><li class="creation-step"><span class="creation-step-mark">03</span><span>Подготавливаем озвучку</span></li><li class="creation-step"><span class="creation-step-mark">04</span><span>Собираем видеорассказ</span></li></ol><div class="creation-progress-row"><progress id="creation-progress" max="100" value="0" aria-label="Подготовка видеорассказа"></progress><span id="creation-percent" role="status" aria-live="polite">0%</span></div><button class="text-link" data-close="creation-dialog" type="button">Отменить</button></dialog>
+  <noscript><p class="noscript-message">Для поиска тем и воспроизведения историй включите JavaScript в браузере.</p></noscript>
+</body>
+</html>
