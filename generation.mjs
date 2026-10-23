@@ -9,7 +9,7 @@ import { pipeline } from 'node:stream/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { atomicJson, findBackground, writeStory, makeSpeech, exportStory, saveLibraryStory, StoryError, SCRIPT_MODEL, VOICE_MODEL, VOICES, SCRIPT_RESERVE_RUB, voiceReserve } from './story.mjs';
+import { atomicJson, findBackground, writeStory, makeSpeech, exportStory, saveLibraryStory, StoryError, SCRIPT_MODEL, voiceModelFor, VOICES, SCRIPT_RESERVE_RUB, voiceReserve } from './story.mjs';
 
 const exec = promisify(execFile);
 const terminal = new Set(['completed', 'failed', 'needs_review']);
@@ -357,7 +357,7 @@ export class GenerationService {
         job.voicePhase='submitting';await this.persist(job);
         const result=await this.makeSpeech(this.api,job.plan.narration,job.voice||'onyx');
         await writeFile(voice,result.bytes,{mode:0o600,flush:true});
-        job.voiceCost=result.cost;job.voicePhase='completed';job.voiceModel=VOICE_MODEL;
+        job.voiceCost=result.cost;job.voicePhase='completed';job.voiceModel=result.model||voiceModelFor(job.voice||'onyx');
         await this.stage(job,'narrating','Русская дикторская дорожка сохранена.');
       }
     }

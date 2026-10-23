@@ -9,7 +9,12 @@ const exec = promisify(execFile);
 export class StoryError extends Error {}
 export const SCRIPT_MODEL = 'openai/gpt-4o-mini';
 export const VOICE_MODEL = 'openai/tts-1-hd';
+export const GEMINI_VOICE_MODEL = 'google/gemini-3.8-flash-tts';
+const geminiVoices = new Map([['gemini-charon','Charon'],['gemini-kore','Kore']]);
+export const voiceModelFor = voice => geminiVoices.has(voice) ? GEMINI_VOICE_MODEL : VOICE_MODEL;
 export const VOICES = [
+  {id:'gemini-charon',label:'Gemini Charon — мужской рассказчик'},
+  {id:'gemini-kore',label:'Gemini Kore — женский диктор'},
   {id:'onyx',label:'Onyx — низкий, спокойный'},
   {id:'nova',label:'Nova — лёгкий, яркий'},
   {id:'shimmer',label:'Shimmer — мягкий'},
@@ -82,15 +87,18 @@ export async function writeStory(api, job, background) {
 
 export async function makeSpeech(api, narration, voice='onyx') {
   if(!VOICES.some(item=>item.id===voice))throw new StoryError('Выберите голос из списка.');
+  const gemini = geminiVoices.has(voice), model = voiceModelFor(voice);
+  // Gemini возвращает WAV. FFmpeg определяет формат по содержимому дорожки.
+  // Polza не поддерживает проверку max_price для этой модели; старые голоса сохраняют свой тарифный фильтр.
   const response=await api.request('v1/audio/speech',{
-    model:VOICE_MODEL,input:narration,voice,response_format:'mp3',speed:1.02,
-    provider:{only:['openai'],allow_fallbacks:false,sort:'price',max_price:{tts_per_million_characters:MAX_TTS_RATE}}
+    model,input:narration,voice:gemini ? geminiVoices.get(voice) : voice,response_format:'mp3',
+    ...(gemini ? {provider:{allow_fallbacks:false,sort:'price'}} : {speed:1.02,provider:{only:['openai'],allow_fallbacks:false,sort:'price',max_price:{tts_per_million_characters:MAX_TTS_RATE}}})
   },{timeout:120000,audio:true});
   if(typeof response.audio!=='string'||response.audio.length>12*1024*1024||!/^[A-Za-z0-9+/]+={0,2}$/.test(response.audio))
     throw new StoryError('Сервис диктора не вернул аудио. Повторный платный запрос не отправлялся.');
   const bytes=Buffer.from(response.audio,'base64');
   if(bytes.length<100)throw new StoryError('Дикторская дорожка пуста.');
-  return {bytes,cost:Number(response.usage?.cost_rub??response.usage?.cost)||null};
+  return {bytes,cost:Number(response.usage?.cost_rub??response.usage?.cost)||null,model};
 }
 
 export async function exportStory({ffmpeg='ffmpeg',directory,clips,voice,sound,duration,index}) {
