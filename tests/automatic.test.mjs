@@ -130,3 +130,70 @@ test('unlimited monetary settings allow long public jobs while still checking th
   assert.deepEqual(calls,{script:0,video:0,voice:0,export:0});
   assert.deepEqual(emptyCalls,{script:0,video:0,voice:0,export:0});
 });
+
+function fourSceneFixture(fixture,selected='fable') {
+  const {api,calls,service}=fixture;
+  const script={...plan,scenes:Array.from({length:4},(_,i)=>({...plan.scenes[0],title:'Сцена '+i,narration:'Космический полёт.',visual:'Historical continuous Vostok shot, scene number '+i+'.'}))};
+  api.check=async()=>({available:5000});
+  api.request=async(path,body)=>{
+    if(path==='v1/chat/completions'){calls.script++;return{choices:[{message:{content:JSON.stringify(script)}}],usage:{cost_rub:0.1}};}
+    calls.voice++;assert.equal(body.voice,selected);return{audio:Buffer.alloc(500,1).toString('base64'),usage:{cost_rub:0.1}};
+  };
+  api.submit=async body=>{calls.video++;assert.equal(body.duration,'15');return{id:'scene-'+calls.video};};
+  service.exportStory=async({directory,clips})=>{
+    calls.export++;assert.deepEqual(clips,['clip-0.mp4','clip-1.mp4','clip-2.mp4','clip-3.mp4']);
+    await writeFile(join(directory,'video-1.mp4'),'0000ftypmp42-result');await writeFile(join(directory,'poster-1.jpg'),'poster');
+    return{output:'video-1.mp4',poster:'poster-1.jpg'};
+  };
+}
+
+test('voice choices are exposed and invalid voices are rejected before any paid operation',async t=>{
+  const {service,calls}=await fixture(t);
+  assert.deepEqual(service.publicConfig().voices.map(voice=>voice.id),['onyx','nova','shimmer','echo','fable','alloy']);
+  await assert.rejects(service.create({...input(),voice:'unknown'},'owner'),/голос/);
+  assert.deepEqual(calls,{script:0,video:0,voice:0,export:0});
+});
+
+test('four scenes run concurrently, retain their order and IDs, and use the selected voice once',async t=>{
+  const f=await fixture(t,{budget:2000});fourSceneFixture(f);
+  let active=0,peak=0;
+  f.api.status=async()=>{
+    assert.equal(f.calls.video,4,'all scenes must be submitted before waiting for a scene to finish');
+    peak=Math.max(peak,++active);await new Promise(resolve=>setTimeout(resolve,20));active--;
+    return{status:'completed',data:{video:{url:'https://example.com/scene.mp4'}},usage:{cost_rub:210}};
+  };
+  const request={...input(),duration:60,voice:'fable'},accepted=await f.service.create(request,'owner');
+  const result=await finished(f.service,accepted.id);assert.equal(result.status,'completed',result.error);assert.equal(peak,4);assert.equal(result.voice,'fable');
+  const journal=JSON.parse(await readFile(join(f.directory,'jobs',accepted.id+'.json'),'utf8'));
+  assert.equal(new Set(journal.clips.map(clip=>clip.remoteId)).size,4);assert.ok(journal.clips.every(clip=>clip.completedAt&&clip.phase==='completed'));
+  f.service.close();const restored=new GenerationService(f.options);await restored.ready;t.after(()=>restored.close());
+  assert.equal((await restored.create(request,'owner')).status,'completed');
+  assert.deepEqual(f.calls,{script:1,video:4,voice:1,export:1});
+});
+
+test('a lost parallel submission stops further paid requests and still collects accepted scenes',async t=>{
+  const f=await fixture(t,{budget:2000});fourSceneFixture(f);
+  f.api.submit=async()=>{f.calls.video++;if(f.calls.video===2)throw new Error('Acceptance response lost');return{id:'accepted-1'};};
+  const accepted=await f.service.create({...input(),duration:60,voice:'fable'},'owner');
+  assert.equal((await finished(f.service,accepted.id)).status,'needs_review');
+  const journal=JSON.parse(await readFile(join(f.directory,'jobs',accepted.id+'.json'),'utf8'));
+  assert.equal(journal.clips[0].phase,'completed');assert.equal(journal.clips[1].phase,'submitting');
+  f.service.close();const restored=new GenerationService(f.options);await restored.ready;t.after(()=>restored.close());
+  assert.equal(restored.get(accepted.id,'owner').status,'needs_review');
+  assert.deepEqual(f.calls,{script:1,video:2,voice:0,export:0});
+});
+
+test('an explicit concurrency rejection reduces parallelism and safely retries only the rejected scene',async t=>{
+  const f=await fixture(t,{budget:2000,pause:async()=>{}});fourSceneFixture(f);
+  let collected=0;
+  f.api.status=async()=>{collected++;return{status:'completed',data:{video:{url:'https://example.com/scene.mp4'}},usage:{cost_rub:210}};};
+  f.api.submit=async()=>{
+    const call=++f.calls.video;
+    if(call===2){const error=new Error('Too many active scenes');error.status=429;error.definiteRejection=true;throw error;}
+    if(call===3)assert.equal(collected,1,'wait for the accepted scene before retrying the rejected one');
+    return{id:'accepted-'+call};
+  };
+  const accepted=await f.service.create({...input(),duration:60,voice:'fable'},'owner');
+  assert.equal((await finished(f.service,accepted.id)).status,'completed');assert.equal(collected,4);
+  assert.deepEqual(f.calls,{script:1,video:5,voice:1,export:1});
+});
