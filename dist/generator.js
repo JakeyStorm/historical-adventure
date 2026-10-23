@@ -8,7 +8,7 @@
   const preview = $('generation-voice-audio'), previewButton = $('generation-voice-preview'), previewStatus = $('generation-voice-preview-status');
   const previewVoices = new Set(['gemini-charon','gemini-kore','onyx','nova','shimmer','echo','fable','alloy']);
   let previewAttempt = 0;
-  // Образцы записаны заранее тем же TTS. Прослушивание загружает только статический MP3.
+  // Образцы записаны заранее тем же TTS. Прослушивание загружает только готовое аудио.
   function stopPreview() {
     previewAttempt++; preview.pause(); preview.currentTime = 0;
     previewButton.textContent = '▶ Послушать голос'; previewButton.setAttribute('aria-pressed','false'); previewStatus.textContent = '';
@@ -17,7 +17,7 @@
   async function api(path, options = {}) {
     const response = await fetch(path, { ...options, credentials:'same-origin',headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(40000) });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) { const failure = new Error(data.error || 'Не удалось получить ответ сервера.'); failure.status = response.status; throw failure; }
+    if (!response.ok) { const failure = new Error(data.error || 'Не удалось получить ответ сервера.'); failure.status = response.status; failure.accepted = data.accepted; throw failure; }
     return data;
   }
   function update() {
@@ -72,7 +72,16 @@
       if(job.narration&&job.automatic)$('generation-status').textContent+=` Голос: ${config?.voices?.find(voice=>voice.id===(job.voice||'onyx'))?.label||job.voice||'Onyx'}.`;
       if(job.libraryIds?.length){$('generation-status').textContent+=' Ролик сохранён в библиотеке.';window.dispatchEvent(new Event('historical-library-updated'));}
     }
-    if (['completed','failed','needs_review'].includes(job.status)) { activeId = ''; storage.set(''); return false; }
+    if (['completed','failed','needs_review'].includes(job.status)) {
+      activeId = ''; storage.set('');
+      if(job.canEdit){
+        submitted=null;requestId=crypto.randomUUID();$('generation-settings').hidden=false;
+        $('generation-prompt').value=job.prompt;$('generation-duration').value=String(job.duration);$('generation-count').value=String(job.count);
+        $('generation-sound').checked=job.sound;$('generation-narration').checked=job.narration;$('generation-voice').value=job.voice;$('generation-publish').checked=job.publish;
+        controls.forEach(id=>{$(id).disabled=false;});update();
+      }
+      return false;
+    }
     return true;
   }
   async function track(id) {
@@ -109,7 +118,7 @@
       activeId = job.id; storage.set(job.id); if (render(job)) await track(job.id);
     } catch (failure) {
       error(failure.message || 'Нет ответа. Задание сохранено — попробуйте проверить готовность ещё раз.');
-      if (failure.status >= 400 && failure.status < 500) { submitted = null; controls.forEach(id => { $(id).disabled = false; }); }
+      if (failure.accepted===false || (failure.status >= 400 && failure.status < 500)) { submitted = null; controls.forEach(id => { $(id).disabled = false; }); }
     } finally { busy = false; update(); }
   });
   controls.forEach(id => $(id).addEventListener('input', update));
