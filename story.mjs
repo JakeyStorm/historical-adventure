@@ -1,3 +1,8 @@
+/*
+ * Содержательная часть фильма: справочные материалы, сценарий, голос и монтаж.
+ * Текстовая модель возвращает проверяемый JSON, TTS создаёт отдельную русскую дорожку.
+ * FFmpeg собирает итоговый MP4, после чего сохраняется карточка для общей библиотеки.
+ */
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -27,6 +32,7 @@ export const MAX_TTS_RATE = 4000;
 export const narrationLimit = duration => Math.floor(duration * 11);
 export const voiceReserve = duration => Math.max(1, Math.ceil(narrationLimit(duration) * MAX_TTS_RATE / 1e6));
 
+// Сначала записываем временный файл, затем заменяем журнал целиком, чтобы не оставить половину JSON.
 export async function atomicJson(path, value) {
   const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, JSON.stringify(value), {mode:0o600,flush:true});
@@ -39,6 +45,7 @@ export async function atomicJson(path, value) {
   }
 }
 
+// Находим краткие материалы Википедии; отсутствие сети не останавливает сценарий, но отмечается в источниках.
 export async function findBackground(topic, fetcher=fetch) {
   try {
     const url=new URL('https://ru.wikipedia.org/w/api.php');
@@ -57,6 +64,7 @@ const storySchema={type:'object',additionalProperties:false,properties:{title:te
   quiz:{type:'array',items:{type:'object',additionalProperties:false,properties:{question:text,options:{type:'array',items:text},correct:{type:'integer'},explanation:text},required:['question','options','correct','explanation']}}},
   required:['title','description','era','year','date','place','scenes','quiz']};
 
+// Подгоняем число сцен и объём дикторского текста под длительность; сохранённый ответ используем без нового запроса.
 export async function writeStory(api, job, background, onResponse) {
   const count=job.clipDurations.length;
   const cap=narrationLimit(job.duration);
@@ -93,6 +101,7 @@ export async function writeStory(api, job, background, onResponse) {
     cost};
 }
 
+// Выбираем TTS-модель по голосу и получаем аудио отдельно от фоновых звуков видеосцены.
 export async function makeSpeech(api, narration, voice='onyx') {
   if(!VOICES.some(item=>item.id===voice))throw new StoryError('Выберите голос из списка.');
   const gemini = geminiVoices.has(voice), model = voiceModelFor(voice);
@@ -109,6 +118,7 @@ export async function makeSpeech(api, narration, voice='onyx') {
   return {bytes,cost:Number(response.usage?.cost_rub??response.usage?.cost)||null,model};
 }
 
+// Соединяем сцены по порядку, выравниваем громкость диктора, приглушаем фон и проверяем готовое видео.
 export async function exportStory({ffmpeg='ffmpeg',directory,clips,voice,sound,duration,index}) {
   // Диктор создаётся отдельной дорожкой: наличие фонового звука Kling не считается озвучкой.
   const list=join(directory,`auto-concat-${index}.txt`);
@@ -147,6 +157,7 @@ export async function exportStory({ffmpeg='ffmpeg',directory,clips,voice,sound,d
   return {output,poster,narrationDuration,ambience};
 }
 
+// Публикуем метаданные, текст, источники и вопросы; сам MP4 уже лежит в постоянной папке задания.
 export async function saveLibraryStory(directory,job,index) {
   // Карточка хранится в постоянных данных; другие браузеры получают её через /api/library.
   await mkdir(join(directory,'library'),{recursive:true});

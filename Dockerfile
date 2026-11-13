@@ -1,3 +1,5 @@
+# Собирает контейнер приложения с Node.js, FFmpeg и публичными файлами сайта.
+# Запускает сервер от обычного пользователя node; HEALTHCHECK проверяет адрес /healthz.
 FROM node:24-bookworm-slim
 
 RUN apt-get update \

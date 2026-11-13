@@ -1,3 +1,8 @@
+/*
+ * Диспетчер генерации: проверяет параметры, принимает задания и ведёт постоянный журнал.
+ * Обращается к Polza, создаёт видеосцены параллельно и следит за их готовностью.
+ * Сценарий, диктор и монтаж вынесены в story.mjs; ключ API остаётся на сервере.
+ */
 import { mkdir, readdir, readFile, writeFile, copyFile, stat } from 'node:fs/promises';
 import { createWriteStream } from 'node:fs';
 import { resolve, join } from 'node:path';
@@ -26,6 +31,7 @@ export class RequestError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
+// Единая точка обращения к Polza: авторизация, таймауты, проверка баланса и чтение результатов.
 export class PolzaClient {
   constructor(key, fetcher = fetch) { this.key = key; this.fetcher = fetcher; }
   async request(path, body, options = {}) {
@@ -84,6 +90,7 @@ function publicAddress(address) {
   return isIP(address) === 6 && /^[23][0-9a-f]{3}:/i.test(address);
 }
 
+// Загружаем MP4 только с публичных HTTPS-адресов; проверяем перенаправления, размер и сигнатуру файла.
 async function downloadVideo(url, destination) {
   let response;
   for (let redirects = 0; redirects < 5; redirects++) {
@@ -135,6 +142,7 @@ function videoUrl(value, depth = 0) {
   return null;
 }
 
+// Повторно проверяем изображение на сервере: ограничения браузера сами по себе не защищают API.
 function validateImage(image) {
   if (!image) return null;
   if (!['image/jpeg', 'image/png', 'image/webp'].includes(image.mime)
@@ -149,6 +157,7 @@ function validateImage(image) {
   return { mime: image.mime, data: image.data };
 }
 
+// Хранит задания и управляет очередью; публичное представление формируется отдельно от внутренних данных.
 export class GenerationService {
   constructor(options = {}) {
     this.key = options.key ?? process.env.POLZA_API_KEY ?? '';
@@ -174,6 +183,7 @@ export class GenerationService {
     this.jobs = new Map(); this.published = new Map(); this.saveQueue=new Map();this.lock = Promise.resolve(); this.working = false; this.closed = false;
     this.ready = this.initialize();
   }
+  // При старте восстанавливаем задания с диска; неоднозначный платный запрос автоматически не повторяем.
   async initialize() {
     await mkdir(join(this.directory, 'jobs'), { recursive: true });
     await mkdir(join(this.directory, 'library'), { recursive: true });
@@ -205,6 +215,7 @@ export class GenerationService {
     const digest = value => createHash('sha256').update(String(value || '')).digest('hex');
     if (this.password && digest(password) !== digest(this.password)) throw new RequestError(401, 'Введите верный код доступа к генерации.');
   }
+  // Для интерфейса оставляем только доступные настройки, без ключей, паролей и финансовых данных.
   publicConfig() {
     const config=this.config();
     return {enabled:config.enabled&&(config.budgetRemaining===null||config.budgetRemaining>=3*this.rate+SCRIPT_RESERVE_RUB),
@@ -212,6 +223,7 @@ export class GenerationService {
       durations:config.durations.filter(duration=>this.estimate({duration,count:1,sound:true,automatic:true}).estimatedCost<=this.publicMaxCost),
       maxDurationByCount:Object.fromEntries([1,2].map(count=>[count,Math.max(0,...config.durations.filter(duration=>this.estimate({duration,count,sound:true,automatic:true}).estimatedCost<=this.publicMaxCost))]))};
   }
+  // Проверяем длительность и делим длинный ролик на сцены не длиннее 15 секунд; считаем резерв затрат.
   estimate(input) {
     const duration = Number(input.duration), count = Number(input.count || 1), sound = input.sound === true;
     if (![3, 5, 15, 30, 60].includes(duration) || ![1, 2].includes(count)) throw new RequestError(400, 'Выберите допустимую длительность и количество роликов.');
@@ -224,6 +236,7 @@ export class GenerationService {
       clipDurations: duration > 15 ? Array(duration / 15).fill(15) : [duration] };
   }
   async check(password) { this.authorize(password); return { ...await this.api.check(), ...this.config() }; }
+  // Записи одного задания выстраиваются в очередь, чтобы параллельные сцены не затёрли ID друг друга.
   async persist(job) {
     // Параллельные сцены сохраняют общий журнал строго по очереди: старый снимок не затрёт новый ID.
     const previous=this.saveQueue.get(job.id)||Promise.resolve();
@@ -243,6 +256,7 @@ export class GenerationService {
       timeline:job.timeline||[],libraryIds:job.libraryIds||[],
       videos: job.status === 'completed' ? job.outputs.map((name, i) => ({ url: `/generated/${job.id}/${name}`, title:job.plan?.title||`Видеосцена ${i + 1}`,storyId:job.libraryIds?.[i]||null })) : [] };
   }
+  // requestId связывает повторные отправки с одним заданием и защищает от дублирования платных запусков.
   async create(input, password, context = {}) {
     await this.ready; this.authorize(password);
     const previous = this.lock; let release;
@@ -317,6 +331,7 @@ export class GenerationService {
     job.timeline.push({at:Date.now(),stage:status,message});
     await this.persist(job);
   }
+  // Один рабочий цикл обрабатывает очередь; этапы и ошибки сохраняются до перехода к следующему заданию.
   async run() {
     if (this.working || this.closed) return;
     this.working = true;
@@ -335,6 +350,7 @@ export class GenerationService {
       }
     } finally { this.working = false; }
   }
+  // Полный путь посетителя: сценарий → видеосцены → диктор → монтаж → публикация в библиотеке.
   async processAutomatic(job) {
     // Журнал фиксируется перед каждым платным этапом: после сбоя сомнительный запрос не повторяем.
     const directory=join(this.directory,'generated',job.id);
@@ -383,6 +399,7 @@ export class GenerationService {
     }
     await this.stage(job,'completed',job.publish?`Видео${job.narration?' с озвучкой':''} готово и автоматически сохранено в библиотеке.`:'Видео готово.');
   }
+  // Сцены создаются группами до заданного уровня параллелизма; порядок итогового рассказа сохраняется.
   async generateClips(job,directory) {
     await this.stage(job,'generating',`Создаём видеосцены: до ${this.videoConcurrency} одновременно.`);
     let cursor=0,limit=this.videoConcurrency,rejections=0;
@@ -413,6 +430,7 @@ export class GenerationService {
       }
     }
   }
+  // Фиксируем отправку до платного запроса, затем сохраняем ID, выданный провайдером.
   async submitClip(job,index) {
     const clip=job.clips[index];
     if(clip.remoteId)return;
@@ -429,6 +447,7 @@ export class GenerationService {
     if(!remote.id)throw new RequestError(502,'Polza не вернула номер задания. Повторный платный запрос не отправляется.');
     clip.remoteId=remote.id;clip.phase='processing';await this.persist(job);
   }
+  // Проверяем уже принятое задание и скачиваем результат; этот этап не заказывает новое видео.
   async collectClip(job,directory,index) {
       const clip=job.clips[index],file=join(directory,`clip-${index}.mp4`);
       let remote;
@@ -449,6 +468,7 @@ export class GenerationService {
       clip.phase='completed';clip.completedAt=Date.now();const cost=Number(remote.usage?.cost_rub??remote.usage?.cost);clip.cost=Number.isFinite(cost)?cost:null;
       await this.persist(job);
   }
+  // Совместимость с прежними заданиями: создание и склейка сцен без автоматического сценария и отдельного диктора.
   async process(job) {
     const directory = join(this.directory, 'generated', job.id);
     await mkdir(directory, { recursive: true });

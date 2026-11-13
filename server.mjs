@@ -1,3 +1,8 @@
+/*
+ * HTTP-сервер проекта: отдаёт страницу, аудиообразцы, видео и API библиотеки.
+ * Связывает задания с сессией посетителя, проверяет запросы и скрывает служебные данные.
+ * Саму генерацию передаёт GenerationService из generation.mjs.
+ */
 import { createServer } from 'node:http';
 import { stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -13,6 +18,7 @@ function json(res, status, data, head = false) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(head ? undefined : JSON.stringify(data));
 }
+// Читаем JSON с ограничением размера, чтобы прикреплённый файл не занял всю память сервера.
 async function body(req) {
   if (!req.headers['content-type']?.startsWith('application/json')) throw new RequestError(415, 'Отправьте JSON-запрос.');
   const chunks = []; let length = 0;
@@ -25,6 +31,7 @@ async function body(req) {
   catch { throw new RequestError(400, 'Не удалось прочитать запрос.'); }
 }
 
+// Создаём сервер отдельно от запуска: в тестах вместо настоящего провайдера подключается имитация.
 export function createAppServer(generation, options={}) {
   const attempts = new Map();
   const trustProxy=options.trustProxy??process.env.TRUST_PROXY==='true';
@@ -46,6 +53,7 @@ export function createAppServer(generation, options={}) {
     res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'");
     try {
       const url = new URL(req.url, 'http://localhost');
+      // API принимает запросы интерфейса; для операций с заданием проверяется сессия или служебный доступ.
       if (url.pathname.startsWith('/api/')) {
         if (req.headers.origin) {
           let same = false;
@@ -94,6 +102,7 @@ export function createAppServer(generation, options={}) {
       if (!['GET', 'HEAD'].includes(req.method)) { res.writeHead(405, { Allow: 'GET, HEAD' }).end(); return; }
       if (url.pathname === '/healthz') return json(res, 200, { status: 'ok', service: 'historical-adventure' }, req.method === 'HEAD');
       let path;
+      // Готовые ролики выдаются по журналу задания; произвольный путь к серверным файлам передать нельзя.
       if (url.pathname.startsWith('/generated/')) {
         await generation.ready;
         const output = url.pathname.match(/^\/generated\/([a-f0-9-]{36})\/(video-[12]\.mp4|poster-[12]\.jpg)$/);
@@ -108,6 +117,7 @@ export function createAppServer(generation, options={}) {
       const headers = { 'Content-Type': mime[extname(path)] || 'application/octet-stream', 'Accept-Ranges': 'bytes',
         'Cache-Control': path.endsWith('.mp4') ? 'private, max-age=3600' : 'no-cache' };
       let start = 0, end = info.size - 1, status = 200;
+      // Range отдаёт нужный кусок медиафайла: проигрыватель может перематывать видео без полной загрузки.
       if (req.headers.range) {
         const range = req.headers.range.match(/^bytes=(\d+)-(\d*)$/);
         if (!range) { res.writeHead(416, { 'Content-Range': `bytes */${info.size}` }).end(); return; }
@@ -128,6 +138,7 @@ export function createAppServer(generation, options={}) {
   });
 }
 
+// Этот блок выполняется при npm start; импорт модуля в тестах сам по себе сервер не запускает.
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try { process.loadEnvFile(resolve(import.meta.dirname, '.env')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   const port = Number(process.env.PORT || 4173), host = process.env.HOST || '127.0.0.1';
