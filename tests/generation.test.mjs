@@ -1,3 +1,7 @@
+/*
+ * Проверки очереди генерации и HTTP API: параметры, доступ, резерв затрат и повторная отправка.
+ * Тестовые ответы провайдера и файлы создаются локально; настоящие видео не заказываются.
+ */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
