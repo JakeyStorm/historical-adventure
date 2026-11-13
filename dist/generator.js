@@ -1,3 +1,8 @@
+/*
+ * Форма создания видео: настройки, выбор и прослушивание голоса, запуск и показ результата.
+ * Отправляет запросы только своему серверу, затем опрашивает сохранённое задание.
+ * Не содержит ключа Polza: платные операции и монтаж выполняются на сервере.
+ */
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
@@ -14,6 +19,7 @@
     previewButton.textContent = '▶ Послушать голос'; previewButton.setAttribute('aria-pressed','false'); previewStatus.textContent = '';
   }
   function error(message) { $('generation-error').textContent = message; $('generation-error').hidden = !message; }
+  // Передаём анонимную сессию браузера; явный отказ сервера отличается от потерянного ответа.
   async function api(path, options = {}) {
     const response = await fetch(path, { ...options, credentials:'same-origin',headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(40000) });
     const data = await response.json().catch(() => ({}));
@@ -29,6 +35,7 @@
     $('generation-start').textContent = activeId || submitted ? 'Проверить готовность' : 'Создать видео';
     $('generation-start').disabled = busy || (!activeId && !submitted && (!config?.enabled || $('generation-prompt').value.trim().length < 10));
   }
+  // Открываем настройки нового ролика или возвращаемся к заданию, которое уже было принято сервером.
   async function open(options) {
     stopPreview();
     error('');
@@ -48,6 +55,7 @@
       update();
     } catch (failure) { error(failure.message || 'Сервер генерации недоступен.'); }
   }
+  // Показываем реальные этапы обработки; после готовности добавляем проигрыватель, скачивание и ссылку в библиотеку.
   function render(job) {
     $('generation-settings').hidden = true; $('generation-status').hidden = false;
     const labels = { queued:'Задание принято.', planning:'Сайт пишет исторический сценарий.',generating:'Создаём видеоряд.',narrating:'Записываем русского диктора.', assembling:'Сводим голос, видео и фон.',publishing:'Сохраняем видео в библиотеку.', completed:'Видео готово.', failed:'Не удалось завершить создание.', needs_review:'Не удалось завершить создание.' };
@@ -84,6 +92,7 @@
     }
     return true;
   }
+  // Проверяем статус раз в пять секунд; закрытие окна прекращает опрос, но не серверную обработку.
   async function track(id) {
     if (tracking) return;
     tracking = true; let failures = 0;
@@ -105,6 +114,7 @@
       reader.onload = () => resolve({ mime: imageMime, data: String(reader.result).split(',')[1] }); reader.readAsDataURL(file);
     });
   }
+  // Повторная отправка использует тот же requestId; при подтверждённом отказе снова разрешаем редактирование.
   $('generation-start').addEventListener('click', async () => {
     if (busy) return;
     stopPreview();
@@ -124,6 +134,7 @@
   controls.forEach(id => $(id).addEventListener('input', update));
   $('generation-voice').addEventListener('change', stopPreview);
   $('generation-narration').addEventListener('change', stopPreview);
+  // Прослушивание берёт готовый образец с сайта и не обращается к платному TTS API.
   previewButton.addEventListener('click', async () => {
     if (previewButton.disabled) return;
     if (previewButton.getAttribute('aria-pressed') === 'true') { stopPreview(); return; }

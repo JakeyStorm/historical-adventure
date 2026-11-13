@@ -1,3 +1,8 @@
+/*
+ * Основной интерфейс библиотеки: карточки историй, поиск, просмотр, источники и вопросы.
+ * Обрабатывает вложения, локальную историю просмотров и учебный режим «что если».
+ * Для нового видео открывает форму из generator.js; готовые истории показывает без генерации.
+ */
 (() => {
   'use strict';
   const events = window.HISTORICAL_EVENTS || [];
@@ -23,6 +28,7 @@
   const showError = (message) => { $('input-error').textContent = message; $('input-error').hidden = false; $('topic-input').setAttribute('aria-invalid','true'); };
   const clearError = () => { $('input-error').hidden = true; $('topic-input').removeAttribute('aria-invalid'); };
 
+  // Формируем карточки выбранной эпохи из встроенных историй и результатов, загруженных с сервера.
   function renderCards(filter = 'all') {
     activeLibraryFilter=filter;
     const visible = events.filter(e => filter === 'all' || e.id === filter || (filter==='generated'&&e.generated));
@@ -32,6 +38,7 @@
     $('library-count').textContent = `${String(n).padStart(2, '0')} ${noun}`;
   }
 
+  // Дополняем встроенный каталог роликами из общей серверной библиотеки, не добавляя дубликаты.
   async function loadGeneratedStories() {
     try {
       const response=await fetch('/api/library');
@@ -56,6 +63,7 @@
     });
   }
 
+  // Подготавливаем проигрыватель и вкладки материалов для выбранной истории; сохраняем факт просмотра локально.
   function openEvent(id) {
     const event = events.find(e => e.id === id);
     if (!event) return;
@@ -83,6 +91,7 @@
     try { localStorage.setItem(historyKey, JSON.stringify(saved)); } catch { /* Private browsing can disable storage. */ }
   }
 
+  // Вопросы берутся из карточки рассказа; ответы проверяются в браузере, без обращения к нейросети.
   function renderQuiz(event) {
     if(!event.quiz.length){$('panel-quiz').innerHTML='<p class="generation-note">Это короткая видеосцена. Посмотрите текст озвучки и проверьте сведения по источникам.</p>';return;}
     $('panel-quiz').innerHTML = `<form id="quiz-form"><p style="font-size:12px;color:var(--muted);margin-bottom:22px">Три вопроса по рассказу. Можно вернуться к тексту и проверить факты.</p>${event.quiz.map((q,i) => `<fieldset class="quiz-question"><legend>${i + 1}. ${esc(q.question)}</legend>${q.options.map((option,j) => `<label class="quiz-option"><input type="radio" name="question-${i}" value="${j}" required><span>${esc(option)}</span></label>`).join('')}</fieldset>`).join('')}<p id="quiz-error" class="quiz-error" role="alert" hidden>Выберите ответ на каждый вопрос.</p><button type="submit" class="quiz-submit">Проверить ответы</button><div id="quiz-result" class="quiz-result" role="status" hidden></div></form>`;
@@ -113,6 +122,7 @@
     for(let i=1;i<=a.length;i++){let prev=row[0];row[0]=i;for(let j=1;j<=b.length;j++){const old=row[j];row[j]=Math.min(row[j]+1,row[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));prev=old;}}
     return row[b.length];
   }
+  // Ищем в существующей библиотеке по ключевым словам и небольшим опечаткам; это не генерация нового ролика.
   function findEvents(query) {
     const normalized = query.toLowerCase().replace(/ё/g,'е');
     const tokens = normalized.match(/[\p{L}\p{N}]+/gu) || [];
@@ -157,6 +167,7 @@
   }
 
   let fileSequence = 0;
+  // Проверяем размер и тип вложения; изображение показываем локально, текст добавляем к описанию темы.
   async function attachFile(file) {
     const sequence = ++fileSequence;
     clearAttachment(); clearError();
@@ -190,6 +201,7 @@
     } catch (error) { showError(error.message || 'Не удалось прочитать файл. Выберите другой.'); }
   }
 
+  // Разводим два режима: поиск готовой истории и отправка описания в форму настоящей генерации.
   $('topic-form').addEventListener('submit', async (e) => {
     e.preventDefault(); clearError();
     if (!events.length) { showError('Библиотека не загрузилась. Обновите страницу.'); return; }
@@ -249,6 +261,7 @@
   $('history-button').addEventListener('click',() => { renderHistory(); showDialog('history-dialog'); });
   $('clear-history').addEventListener('click',() => { try { localStorage.removeItem(historyKey); } catch { /* No persistent storage. */ } renderHistory(); toast('История просмотров очищена.'); });
 
+  // Ветка «что если» — вымышленный учебный пример для обсуждения решений, а не прогноз исторических событий.
   function resetBranch() {
     $('branch-content').innerHTML = '<p class="branch-story">Вы — советник правителя. Переговоры с соседним государством зашли в тупик. У сторон есть спорная территория, ограниченные ресурсы и возможность отложить столкновение.<br><br>Какой шаг вы предложите?</p><div class="branch-choices"><button data-branch="talk">01 &nbsp; Продолжить переговоры ↗</button><button data-branch="plan">02 &nbsp; Изменить военный план ↗</button></div>';
   }
