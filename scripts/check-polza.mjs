@@ -1,3 +1,7 @@
+/*
+ * Ручная проверка подключения к Polza через серверный ключ из .env.
+ * Читает сведения о ключе и балансе; генерацию текста, аудио или видео не запускает.
+ */
 import { resolve } from 'node:path';
 import { PolzaClient } from '../generation.mjs';
 try { process.loadEnvFile(resolve(import.meta.dirname, '../.env')); } catch { /* Checked below. */ }

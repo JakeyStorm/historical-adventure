@@ -1,3 +1,6 @@
+# Упаковывает публичные исходники и медиа проекта в A-Historical-adventure.zip.
+# Файлы берутся по разрешённому списку, а секреты из локальных настроек проверяются перед записью.
+# Рабочая папка data/ и настоящий .env в архив не попадают.
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
 
